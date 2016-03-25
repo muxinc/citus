@@ -19,6 +19,7 @@
 #include "commands/trigger.h"
 #include "distributed/master_metadata_utility.h"
 #include "distributed/metadata_cache.h"
+#include "distributed/multi_physical_planner.h"
 #include "distributed/pg_dist_partition.h"
 #include "distributed/pg_dist_shard.h"
 #include "parser/parse_func.h"
@@ -193,6 +194,8 @@ LookupDistTableCacheEntry(Oid relationId)
 	ShardInterval *shardIntervalArray = NULL;
 	void *hashKey = (void *) &relationId;
 
+	List *sortedShardArrayList = NIL;
+
 	if (DistTableCacheHash == NULL)
 	{
 		InitializeDistTableCache();
@@ -257,6 +260,7 @@ LookupDistTableCacheEntry(Oid relationId)
 			MemoryContext oldContext = MemoryContextSwitchTo(CacheMemoryContext);
 
 			CopyShardInterval(shardInterval, &shardIntervalArray[arrayIndex]);
+			sortedShardArrayList = lappend(sortedShardArrayList, &shardIntervalArray[arrayIndex]);
 
 			MemoryContextSwitchTo(oldContext);
 
@@ -281,12 +285,23 @@ LookupDistTableCacheEntry(Oid relationId)
 	}
 	else
 	{
+
+		ShardInterval **sortedShardIntervalArray = NULL;
+
+		if(shardIntervalArrayLength > 0)
+		{
+			MemoryContext oldContext = MemoryContextSwitchTo(CacheMemoryContext);
+			sortedShardIntervalArray = SortedShardIntervalArray(sortedShardArrayList);
+			MemoryContextSwitchTo(oldContext);
+		}
+
 		cacheEntry->isValid = true;
 		cacheEntry->isDistributedTable = true;
 		cacheEntry->partitionKeyString = partitionKeyString;
 		cacheEntry->partitionMethod = partitionMethod;
 		cacheEntry->shardIntervalArrayLength = shardIntervalArrayLength;
 		cacheEntry->shardIntervalArray = shardIntervalArray;
+		cacheEntry->sortedShardIntervalArray = sortedShardIntervalArray;
 	}
 
 	return cacheEntry;

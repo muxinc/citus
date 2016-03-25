@@ -39,6 +39,7 @@ typedef struct
 	/* pg_dist_shard metadata (variable-length ShardInterval array) for this table */
 	int shardIntervalArrayLength;
 	ShardInterval *shardIntervalArray;
+	ShardInterval **sortedShardIntervalArray;
 } DistTableCacheEntry;
 
 

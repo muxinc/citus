@@ -26,6 +26,7 @@
 #include "catalog/pg_type.h"
 #include "commands/extension.h"
 #include "distributed/citus_nodes.h"
+#include "distributed/metadata_cache.h"
 #include "distributed/multi_logical_optimizer.h"
 #include "distributed/multi_logical_planner.h"
 #include "distributed/multi_physical_planner.h"
@@ -42,6 +43,7 @@
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
+#include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/relcache.h"
 #include "utils/syscache.h"
@@ -137,7 +139,7 @@ static bool SupportedLateralQuery(Query *parentQuery, Query *lateralQuery);
 static bool JoinOnPartitionColumn(Query *query);
 static void ErrorIfUnsupportedShardDistribution(Query *query);
 static List * RelationIdList(Query *query);
-static bool CoPartitionedTables(List *firstShardList, List *secondShardList);
+static bool CoPartitionedTables(Oid firstRelationId, Oid secondRelationId);
 static bool ShardIntervalsEqual(ShardInterval *firstInterval,
 								ShardInterval *secondInterval);
 static void ErrorIfUnsupportedFilters(Query *subquery);
@@ -3382,7 +3384,7 @@ JoinOnPartitionColumn(Query *query)
 static void
 ErrorIfUnsupportedShardDistribution(Query *query)
 {
-	List *firstShardIntervalList = NIL;
+	Oid firstRelationId = 0;
 	List *relationIdList = RelationIdList(query);
 	ListCell *relationIdCell = NULL;
 	uint32 relationIndex = 0;
@@ -3421,21 +3423,20 @@ ErrorIfUnsupportedShardDistribution(Query *query)
 	foreach(relationIdCell, relationIdList)
 	{
 		Oid relationId = lfirst_oid(relationIdCell);
-		List *currentShardIntervalList = LoadShardIntervalList(relationId);
+		Oid currentRelationId = relationId;
 		bool coPartitionedTables = false;
 
 		/* get shard list of first relation and continue for the next relation */
 		if (relationIndex == 0)
 		{
-			firstShardIntervalList = currentShardIntervalList;
+			firstRelationId = currentRelationId;
 			relationIndex++;
 
 			continue;
 		}
 
 		/* check if this table has 1-1 shard partitioning with first table */
-		coPartitionedTables = CoPartitionedTables(firstShardIntervalList,
-												  currentShardIntervalList);
+		coPartitionedTables = CoPartitionedTables(firstRelationId, currentRelationId);
 		if (!coPartitionedTables)
 		{
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -3480,15 +3481,19 @@ RelationIdList(Query *query)
  * not equal it returns false.
  */
 static bool
-CoPartitionedTables(List *firstShardList, List *secondShardList)
+CoPartitionedTables(Oid firstRelation, Oid secondRelation)
 {
 	bool coPartitionedTables = true;
 	uint32 intervalIndex = 0;
-	ShardInterval **sortedFirstIntervalArray = NULL;
-	ShardInterval **sortedSecondIntervalArray = NULL;
 
-	uint32 firstListShardCount = list_length(firstShardList);
-	uint32 secondListShardCount = list_length(secondShardList);
+	DistTableCacheEntry* firstRelationCacheEntry = DistributedTableCacheEntry(firstRelation);
+	DistTableCacheEntry* secondRelationCacheEntry = DistributedTableCacheEntry(secondRelation);
+
+	ShardInterval **sortedFirstIntervalArray = firstRelationCacheEntry->sortedShardIntervalArray;
+	ShardInterval **sortedSecondIntervalArray = secondRelationCacheEntry->sortedShardIntervalArray;
+
+	uint32 firstListShardCount = firstRelationCacheEntry->shardIntervalArrayLength;
+	uint32 secondListShardCount = secondRelationCacheEntry->shardIntervalArrayLength;
 
 	if (firstListShardCount != secondListShardCount)
 	{
@@ -3500,9 +3505,6 @@ CoPartitionedTables(List *firstShardList, List *secondShardList)
 	{
 		return true;
 	}
-
-	sortedFirstIntervalArray = SortedShardIntervalArray(firstShardList);
-	sortedSecondIntervalArray = SortedShardIntervalArray(secondShardList);
 
 	for (intervalIndex = 0; intervalIndex < firstListShardCount; intervalIndex++)
 	{
@@ -3528,7 +3530,7 @@ static bool
 ShardIntervalsEqual(ShardInterval *firstInterval, ShardInterval *secondInterval)
 {
 	Oid typeId = InvalidOid;
-	FmgrInfo *comparisonFunction = NULL;
+	static FmgrInfo *comparisonFunction = NULL;
 	bool shardIntervalsEqual = false;
 	Datum firstMin = 0;
 	Datum firstMax = 0;
@@ -3536,7 +3538,13 @@ ShardIntervalsEqual(ShardInterval *firstInterval, ShardInterval *secondInterval)
 	Datum secondMax = 0;
 
 	typeId = firstInterval->valueTypeId;
-	comparisonFunction = GetFunctionInfo(typeId, BTREE_AM_OID, BTORDER_PROC);
+
+	if(comparisonFunction == NULL)
+	{
+		MemoryContext oldContext = MemoryContextSwitchTo(CacheMemoryContext);
+		comparisonFunction = GetFunctionInfo(typeId, BTREE_AM_OID, BTORDER_PROC);
+		MemoryContextSwitchTo(oldContext);
+	}
 
 	firstMin = firstInterval->minValue;
 	firstMax = firstInterval->maxValue;
