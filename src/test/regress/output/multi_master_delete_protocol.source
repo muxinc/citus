@@ -70,7 +70,7 @@ SELECT count(*) FROM customer_delete_protocol;
 SELECT master_create_empty_shard('customer_delete_protocol');
  master_create_empty_shard 
 ---------------------------
-                    102041
+                    102045
 (1 row)
 
 SELECT master_apply_delete_command('DELETE FROM customer_delete_protocol

@@ -29,6 +29,9 @@
 #include "utils/snapmgr.h"
 
 
+static void CopyQueryResults(List *masterCopyStmtList);
+
+
 /*
  * multi_ExecutorStart is a hook called at at the beginning of any execution
  * of any query plan.
@@ -75,7 +78,6 @@ multi_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			PlannedStmt *masterSelectPlan = MasterNodeSelectPlan(multiPlan);
 			CreateStmt *masterCreateStmt = MasterNodeCreateStatement(multiPlan);
 			List *masterCopyStmtList = MasterNodeCopyStatementList(multiPlan);
-			ListCell *masterCopyStmtCell = NULL;
 			RangeTblEntry *masterRangeTableEntry = NULL;
 			StringInfo jobDirectoryName = NULL;
 
@@ -90,7 +92,11 @@ multi_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			ResourceOwnerRememberJobDirectory(CurrentResourceOwner, workerJob->jobId);
 
 			/* pick distributed executor to use */
-			if (executorType == MULTI_EXECUTOR_REAL_TIME)
+			if (eflags & EXEC_FLAG_EXPLAIN_ONLY)
+			{
+				/* skip distributed query execution for EXPLAIN commands */
+			}
+			else if (executorType == MULTI_EXECUTOR_REAL_TIME)
 			{
 				MultiRealTimeExecute(workerJob);
 			}
@@ -110,23 +116,10 @@ multi_ExecutorStart(QueryDesc *queryDesc, int eflags)
 			/* make the temporary table visible */
 			CommandCounterIncrement();
 
-			/* now copy data from all the remote nodes into temp table */
-			foreach(masterCopyStmtCell, masterCopyStmtList)
+			if (!(eflags & EXEC_FLAG_EXPLAIN_ONLY))
 			{
-				Node *masterCopyStmt = (Node *) lfirst(masterCopyStmtCell);
-
-				Assert(IsA(masterCopyStmt, CopyStmt));
-
-				ProcessUtility(masterCopyStmt,
-							   "(copy job)",
-							   PROCESS_UTILITY_QUERY,
-							   NULL,
-							   None_Receiver,
-							   NULL);
+				CopyQueryResults(masterCopyStmtList);
 			}
-
-			/* make the copied contents visible */
-			CommandCounterIncrement();
 
 			/*
 			 * Update the QueryDesc's snapshot so it sees the table. That's not
@@ -171,6 +164,35 @@ multi_ExecutorStart(QueryDesc *queryDesc, int eflags)
 	{
 		standard_ExecutorStart(queryDesc, eflags);
 	}
+}
+
+
+/*
+ * CopyQueryResults executes the commands that copy query results into a
+ * temporary table.
+ */
+static void
+CopyQueryResults(List *masterCopyStmtList)
+{
+	ListCell *masterCopyStmtCell = NULL;
+
+	/* now copy data from all the remote nodes into temp table */
+	foreach(masterCopyStmtCell, masterCopyStmtList)
+	{
+		Node *masterCopyStmt = (Node *) lfirst(masterCopyStmtCell);
+
+		Assert(IsA(masterCopyStmt, CopyStmt));
+
+		ProcessUtility(masterCopyStmt,
+					   "(copy job)",
+					   PROCESS_UTILITY_QUERY,
+					   NULL,
+					   None_Receiver,
+					   NULL);
+	}
+
+	/* make the copied contents visible */
+	CommandCounterIncrement();
 }
 
 
