@@ -46,6 +46,7 @@ static bool CopyDataFromFinalizedPlacement(Oid distributedTableId, int64 shardId
 
 /* declarations for dynamic loading */
 PG_FUNCTION_INFO_V1(master_copy_shard_placement);
+PG_FUNCTION_INFO_V1(master_update_shard_statistics);
 
 
 /*
@@ -143,6 +144,17 @@ master_copy_shard_placement(PG_FUNCTION_ARGS)
 	}
 
 	RESUME_INTERRUPTS();
+
+	PG_RETURN_VOID();
+}
+
+
+Datum
+master_update_shard_statistics(PG_FUNCTION_ARGS)
+{
+	Oid relationId = PG_GETARG_OID(0);
+	int64 shardId = PG_GETARG_INT64(1);
+	UpdateShardStatistics(relationId, shardId);
 
 	PG_RETURN_VOID();
 }

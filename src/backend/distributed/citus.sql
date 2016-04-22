@@ -494,4 +494,22 @@ RETURNS void
 AS 'MODULE_PATHNAME'
 LANGUAGE C STRICT;
 
+-- update shard statistics
+CREATE FUNCTION master_update_shard_statistics(relation_id regclass, shard_id bigint)
+RETURNS void
+AS 'MODULE_PATHNAME'
+LANGUAGE C STRICT;
+
+-- check if the given relation is distributed
+CREATE FUNCTION is_distributed_table(relation_id regclass)
+    RETURNS boolean
+    AS 'MODULE_PATHNAME'
+    LANGUAGE C STRICT;
+
+-- get the partition column of the distributed table
+CREATE FUNCTION partition_type(relation_id regclass)
+    RETURNS "char"
+    AS 'MODULE_PATHNAME'
+    LANGUAGE C STRICT;
+
 RESET search_path;

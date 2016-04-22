@@ -60,6 +60,13 @@
 #define DROP_REGULAR_TABLE_COMMAND "DROP TABLE IF EXISTS %s"
 #define DROP_FOREIGN_TABLE_COMMAND "DROP FOREIGN TABLE IF EXISTS %s"
 #define CREATE_SCHEMA_COMMAND "CREATE SCHEMA IF NOT EXISTS %s"
+#define CREATE_EMPTY_SHARD "SELECT master_create_empty_shard('%s')"
+#define SHARD_PLACEMENTS_LOCATIONS \
+	"SELECT nodename, nodeport FROM pg_dist_shard_placement WHERE shardstate = 1 AND shardid = %ld"
+#define UPDATE_SHARD_STATISTICS \
+	"SELECT master_update_shard_statistics('%s'::regclass, %ld)"
+#define IS_DISTRIBUTED_TABLE "SELECT is_distributed_table('%s'::regclass)"
+#define PARTITION_TYPE "SELECT partition_type('%s'::regclass)"
 
 
 /* Enumeration that defines the shard placement policy to use while staging */
@@ -106,5 +113,7 @@ extern Datum master_create_worker_shards(PG_FUNCTION_ARGS);
 
 /* function declarations for shard repair functionality */
 extern Datum master_copy_shard_placement(PG_FUNCTION_ARGS);
+
+extern Datum master_update_shard_statistics(PG_FUNCTION_ARGS);
 
 #endif   /* MASTER_PROTOCOL_H */

@@ -10,6 +10,7 @@
 #include "miscadmin.h"
 
 #include "access/htup_details.h"
+#include "access/xact.h"
 #include "catalog/catalog.h"
 #include "catalog/index.h"
 #include "catalog/namespace.h"
@@ -73,6 +74,8 @@ static bool ExecuteCommandOnWorkerShards(Oid relationId, const char *commandStri
 static bool AllFinalizedPlacementsAccessible(Oid relationId);
 static void RangeVarCallbackForDropIndex(const RangeVar *rel, Oid relOid, Oid oldRelOid,
 										 void *arg);
+
+static bool IsRemoteDistributedTable(char *relationName, char *nodeName, int32 nodePort);
 
 
 /*
@@ -229,6 +232,54 @@ IsTransmitStmt(Node *parsetree)
 }
 
 
+bool
+WorkerCopy(CopyStmt *copyStatement)
+{
+	ListCell *optionCell = NULL;
+
+	/* Extract options from the statement node tree */
+	foreach(optionCell, copyStatement->options)
+	{
+		DefElem *defel = (DefElem *) lfirst(optionCell);
+
+		if (strncmp(defel->defname, "master_hostname", NAMEDATALEN) == 0)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+NodeAddress *
+MasterNodeAddress(CopyStmt *copyStatement)
+{
+	NodeAddress *masterNodeAddress = (NodeAddress *) palloc0(sizeof(NodeAddress));
+	ListCell *optionCell = NULL;
+
+	/* set default port */
+	masterNodeAddress->nodePort = 5432;
+
+	/* Extract options from the statement node tree */
+	foreach(optionCell, copyStatement->options)
+	{
+		DefElem *defel = (DefElem *) lfirst(optionCell);
+
+		if (strncmp(defel->defname, "master_hostname", NAMEDATALEN) == 0)
+		{
+			masterNodeAddress->nodeName = defGetString(defel);
+		}
+		else if (strncmp(defel->defname, "master_port", NAMEDATALEN) == 0)
+		{
+			masterNodeAddress->nodePort = defGetInt32(defel);
+		}
+	}
+
+	return masterNodeAddress;
+}
+
+
 /*
  * VerifyTransmitStmt checks that the passed in command is a valid transmit
  * statement. Raise ERROR if not.
@@ -261,6 +312,65 @@ VerifyTransmitStmt(CopyStmt *copyStatement)
 		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						errmsg("FORMAT 'transmit' does not accept query, attribute list"
 							   " or PROGRAM parameters ")));
+	}
+}
+
+
+static bool
+IsRemoteDistributedTable(char *relationName, char *nodeName, int32 nodePort)
+{
+	StringInfo isDistributedTableCommand = makeStringInfo();
+	StringInfo isDistributedResult = NULL;
+	List *commandResults = NIL;
+	bool isDistributedTable = false;
+
+	appendStringInfo(isDistributedTableCommand, IS_DISTRIBUTED_TABLE, relationName);
+	commandResults = ExecuteRemoteQuery(nodeName, nodePort, isDistributedTableCommand);
+
+	isDistributedResult = linitial(commandResults);
+	if (strncmp(isDistributedResult->data, "t", 1) == 0)
+	{
+		isDistributedTable = true;
+	}
+
+	return isDistributedTable;
+}
+
+
+static void
+CreateLocalTable(char *relationName, char *nodeName, int32 nodePort)
+{
+	List *ddlCommandList = NIL;
+	ListCell *ddlCommandCell = NULL;
+
+	/* fetch the ddl commands needed to create the table */
+	StringInfo tableNameStringInfo = makeStringInfo();
+	appendStringInfoString(tableNameStringInfo, relationName);
+
+	ddlCommandList = TableDDLCommandList(nodeName, nodePort, tableNameStringInfo);
+	if (ddlCommandList == NIL)
+	{
+		ereport(ERROR, (errmsg("relatin %s does not exist on the master", relationName)));
+	}
+
+	/* apply DDL commands against the local database */
+	foreach(ddlCommandCell, ddlCommandList)
+	{
+		StringInfo ddlCommand = (StringInfo) lfirst(ddlCommandCell);
+		Node *ddlCommandNode = ParseTreeNode(ddlCommand->data);
+
+		if (IsA(ddlCommandNode, CreateStmt))
+		{
+			CreateStmt *createStatement = (CreateStmt *) ddlCommandNode;
+
+			/* use temprorary table and drop it on commit */
+			createStatement->relation->relpersistence = RELPERSISTENCE_TEMP;
+			createStatement->oncommit = ONCOMMIT_DROP;
+		}
+
+		ProcessUtility(ddlCommandNode, ddlCommand->data, PROCESS_UTILITY_TOPLEVEL,
+					   NULL, None_Receiver, NULL);
+		CommandCounterIncrement();
 	}
 }
 
@@ -299,20 +409,41 @@ ProcessCopyStmt(CopyStmt *copyStatement, char *completionTag)
 	 */
 	if (copyStatement->relation != NULL)
 	{
-		Relation copiedRelation = NULL;
-		bool isDistributedRelation = false;
+		bool isDistributedTable = false;
+		bool workerCopy = WorkerCopy(copyStatement);
 
-		copiedRelation = heap_openrv(copyStatement->relation, AccessShareLock);
+		if (workerCopy)
+		{
+			NodeAddress *masterNodeAddress = MasterNodeAddress(copyStatement);
+			char *relationName = copyStatement->relation->relname;
+			char *nodeName = masterNodeAddress->nodeName;
+			int32 nodePort = masterNodeAddress->nodePort;
 
-		isDistributedRelation = IsDistributedTable(RelationGetRelid(copiedRelation));
+			isDistributedTable = IsRemoteDistributedTable(relationName, nodeName,
+														  nodePort);
+			if (!isDistributedTable)
+			{
+				ereport(ERROR, (errmsg("relation \"%s\" on the master node is not a "
+									   "distributed table", relationName)));
+			}
 
-		/* ensure future lookups hit the same relation */
-		copyStatement->relation->schemaname = get_namespace_name(
-			RelationGetNamespace(copiedRelation));
+			CreateLocalTable(relationName, nodeName, nodePort);
+		}
+		else
+		{
+			Relation copiedRelation = NULL;
+			copiedRelation = heap_openrv(copyStatement->relation, AccessShareLock);
 
-		heap_close(copiedRelation, NoLock);
+			isDistributedTable = IsDistributedTable(RelationGetRelid(copiedRelation));
 
-		if (isDistributedRelation)
+			/* ensure future lookups hit the same relation */
+			copyStatement->relation->schemaname = get_namespace_name(
+				RelationGetNamespace(copiedRelation));
+
+			heap_close(copiedRelation, NoLock);
+		}
+
+		if (isDistributedTable)
 		{
 			if (copyStatement->is_from)
 			{

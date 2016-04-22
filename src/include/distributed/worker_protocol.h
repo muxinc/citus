@@ -145,5 +145,8 @@ extern Datum worker_append_table_to_shard(PG_FUNCTION_ARGS);
 extern Datum worker_foreign_file_path(PG_FUNCTION_ARGS);
 extern Datum worker_find_block_local_path(PG_FUNCTION_ARGS);
 
+extern List * TableDDLCommandList(const char *nodeName, uint32 nodePort,
+								  StringInfo tableName);
+
 
 #endif   /* WORKER_PROTOCOL_H */

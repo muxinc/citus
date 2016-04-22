@@ -22,16 +22,6 @@ CREATE FUNCTION partition_column_id(regclass)
 	AS 'citus'
 	LANGUAGE C STRICT;
 
-CREATE FUNCTION partition_type(regclass)
-	RETURNS "char"
-	AS 'citus'
-	LANGUAGE C STRICT;
-
-CREATE FUNCTION is_distributed_table(regclass)
-	RETURNS boolean
-	AS 'citus'
-	LANGUAGE C STRICT;
-
 CREATE FUNCTION column_name_to_column_id(regclass, cstring)
 	RETURNS smallint
 	AS 'citus'
