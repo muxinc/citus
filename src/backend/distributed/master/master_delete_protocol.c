@@ -16,6 +16,7 @@
 
 #include "postgres.h"
 #include "funcapi.h"
+#include "libpq-fe.h"
 #include "miscadmin.h"
 
 #include "access/xact.h"
@@ -23,12 +24,15 @@
 #include "catalog/pg_class.h"
 #include "commands/dbcommands.h"
 #include "commands/event_trigger.h"
+#include "distributed/citus_ruleutils.h"
+#include "distributed/connection_cache.h"
 #include "distributed/master_metadata_utility.h"
 #include "distributed/master_protocol.h"
 #include "distributed/metadata_cache.h"
 #include "distributed/multi_client_executor.h"
 #include "distributed/multi_physical_planner.h"
 #include "distributed/multi_server_executor.h"
+#include "distributed/multi_transaction.h"
 #include "distributed/pg_dist_shard.h"
 #include "distributed/pg_dist_partition.h"
 #include "distributed/worker_protocol.h"
@@ -42,7 +46,6 @@
 #include "utils/datum.h"
 #include "utils/inval.h"
 #include "utils/lsyscache.h"
-
 
 /* Local functions forward declarations */
 static void CheckTableCount(Query *deleteQuery);
@@ -58,6 +61,7 @@ static bool ExecuteRemoteCommand(const char *nodeName, uint32 nodePort,
 
 /* exports for SQL callable functions */
 PG_FUNCTION_INFO_V1(master_apply_delete_command);
+PG_FUNCTION_INFO_V1(master_push_delete_command);
 PG_FUNCTION_INFO_V1(master_drop_all_shards);
 
 
@@ -161,7 +165,180 @@ master_apply_delete_command(PG_FUNCTION_ARGS)
 
 
 /*
- * master_drop_shards attempts to drop all shards for a given relation.
+ * master_push_delete_command takes in a delete query string and pushes the 
+ * query to shards. It finds shards that match the criteria defined in the
+ * delete command, generates the same delete query string for each of the 
+ * found shards with distributed table name replaced with the shard name and
+ * sends the queries to the workers. It uses one-phase or two-phase commit 
+ * transactions depending on citus.copy_transaction_manager value. 
+ */
+Datum
+master_push_delete_command(PG_FUNCTION_ARGS)
+{
+	text *queryText = PG_GETARG_TEXT_P(0);
+	char *queryString = text_to_cstring(queryText);
+	bool isTopLevel = true;
+	Node *queryTreeNode = NULL;
+	DeleteStmt *deleteStatement = NULL;
+	char *schemaName = NULL;
+	char *relationName = NULL;
+	bool failOK = false;
+	Oid relationId = InvalidOid;
+	List *queryTreeList = NIL;
+	Query *deleteQuery = NULL;
+	Node *whereClause = NULL;
+	Node *deleteCriteria = NULL;
+	LOCKTAG lockTag;
+	bool sessionLock = false;
+	bool dontWait = false;
+	List *shardIntervalList = NIL;
+	Index tableId = 1;
+	List *restrictClauseList = NIL;
+	List *prunedShardIntervalList = NIL;
+	ListCell *shardIntervalCell = NULL;
+	List *connectionList = NIL;
+	int32 affectedTupleCount = 0;
+	
+	PreventTransactionChain(isTopLevel, "master_push_delete_command");
+	
+	queryTreeNode = ParseTreeNode(queryString);
+	if (!IsA(queryTreeNode, DeleteStmt))
+	{
+		ereport(ERROR, (errmsg("query \"%s\" is not a delete statement",
+							   queryString)));
+	}
+	
+	deleteStatement = (DeleteStmt *) queryTreeNode;
+	
+	schemaName = deleteStatement->relation->schemaname;
+	relationName = deleteStatement->relation->relname;
+	relationId = RangeVarGetRelid(deleteStatement->relation, NoLock, failOK);
+	CheckDistributedTable(relationId);
+	
+	queryTreeList = pg_analyze_and_rewrite(queryTreeNode, queryString, NULL, 0);
+	deleteQuery = (Query *) linitial(queryTreeList);
+	CheckTableCount(deleteQuery);
+
+	/* get where clause and flatten it */
+	whereClause = (Node *) deleteQuery->jointree->quals;
+	deleteCriteria = eval_const_expressions(NULL, whereClause);
+	
+	SET_LOCKTAG_ADVISORY(lockTag, MyDatabaseId, relationId, 0, 0);
+	LockAcquire(&lockTag, ExclusiveLock, sessionLock, dontWait);
+
+	shardIntervalList = LoadShardIntervalList(relationId);
+	restrictClauseList = WhereClauseList(deleteQuery->jointree);
+	
+	prunedShardIntervalList = 
+			PruneShardList(relationId, tableId, restrictClauseList, shardIntervalList);
+	
+	PG_TRY();
+	{
+		foreach(shardIntervalCell, prunedShardIntervalList)
+		{
+			ShardInterval *shardInterval = (ShardInterval *) lfirst(shardIntervalCell);
+			List *shardPlacementList = NIL;
+			ListCell *shardPlacementCell = NULL;		
+			StringInfo shardQueryString = makeStringInfo();
+			Oid relationId = shardInterval->relationId;
+			uint64 shardId = shardInterval->shardId;
+			int32 shardAffectedTupleCount = -1;
+			
+			deparse_shard_query(deleteQuery, relationId, shardId, shardQueryString);
+			
+			shardPlacementList = FinalizedShardPlacementList(shardId);
+			foreach(shardPlacementCell, shardPlacementList)
+			{
+				ShardPlacement *shardPlacement = 
+						(ShardPlacement *) lfirst(shardPlacementCell);
+				char *workerName = shardPlacement->nodeName;
+				uint32 workerPort = shardPlacement->nodePort;
+				PGconn *connection = ConnectToNode(workerName, workerPort);
+				TransactionConnection *transactionConnection = NULL;
+				PGresult *result = NULL;
+				char *placementAffectedTupleString = NULL;
+				int32 placementAffectedTupleCount = -1;
+				
+				if (connection == NULL)
+				{
+					/* TODO */
+					continue;
+				}
+				
+				/* send the query */
+				result = PQexec(connection, "BEGIN");
+				if (PQresultStatus(result) != PGRES_COMMAND_OK)
+				{
+					ReportRemoteError(connection, result);
+					/* TODO */
+					continue;
+				}
+				
+				result = PQexec(connection, shardQueryString->data);
+				if (PQresultStatus(result) != PGRES_COMMAND_OK)
+				{
+					ReportRemoteError(connection, result);
+					/* TODO */
+					continue;
+				}
+				
+				placementAffectedTupleString = PQcmdTuples(result);
+				placementAffectedTupleCount = pg_atoi(placementAffectedTupleString, sizeof(int32), 0);
+
+				if ((shardAffectedTupleCount == -1) ||
+					(shardAffectedTupleCount == placementAffectedTupleCount))
+				{
+					shardAffectedTupleCount = placementAffectedTupleCount;
+				}
+				else
+				{
+					/* TODO inconsistent affected tuple counts */
+					
+					if (placementAffectedTupleCount > shardAffectedTupleCount)
+					{
+						shardAffectedTupleCount = placementAffectedTupleCount;
+					}
+				}
+
+				PQclear(result);
+				
+				transactionConnection = palloc0(sizeof(TransactionConnection));
+
+				transactionConnection->connectionId = shardId;
+				transactionConnection->transactionState = TRANSACTION_STATE_OPEN;
+				transactionConnection->connection = connection;
+				
+				connectionList = lappend(connectionList, transactionConnection);
+			}
+			
+			/* TODO: check whether the shard failed completely */
+			
+			affectedTupleCount += shardAffectedTupleCount;
+		}
+		
+		if (CopyTransactionManager == TRANSACTION_MANAGER_2PC)
+		{
+			PrepareRemoteTransactions(connectionList);
+		}
+	}
+	PG_CATCH();
+	{
+		/* roll back all transactions */
+		AbortRemoteTransactions(connectionList);
+		CloseConnections(connectionList);
+		
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+	
+	CommitRemoteTransactions(connectionList, false);
+	
+	PG_RETURN_INT32(affectedTupleCount);
+}
+
+
+/*
+ * master_drop_all_shards attempts to drop all shards for a given relation.
  * Unlike master_apply_delete_command, this function can be called even
  * if the table has already been dropped.
  */

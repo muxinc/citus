@@ -61,6 +61,8 @@
 #define DROP_FOREIGN_TABLE_COMMAND "DROP FOREIGN TABLE IF EXISTS %s"
 #define CREATE_SCHEMA_COMMAND "CREATE SCHEMA IF NOT EXISTS %s"
 
+/* config variable managed via guc.c */
+extern int CopyTransactionManager;
 
 /* Enumeration that defines the shard placement policy to use while staging */
 typedef enum
@@ -99,6 +101,7 @@ extern Datum master_get_active_worker_nodes(PG_FUNCTION_ARGS);
 extern Datum master_create_empty_shard(PG_FUNCTION_ARGS);
 extern Datum master_append_table_to_shard(PG_FUNCTION_ARGS);
 extern Datum master_apply_delete_command(PG_FUNCTION_ARGS);
+extern Datum master_push_delete_command(PG_FUNCTION_ARGS);
 extern Datum master_drop_all_shards(PG_FUNCTION_ARGS);
 
 /* function declarations for shard creation functionality */
