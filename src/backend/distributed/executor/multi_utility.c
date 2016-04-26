@@ -327,6 +327,13 @@ IsRemoteDistributedTable(char *relationName, char *nodeName, int32 nodePort)
 	appendStringInfo(isDistributedTableCommand, IS_DISTRIBUTED_TABLE, relationName);
 	commandResults = ExecuteRemoteQuery(nodeName, nodePort, isDistributedTableCommand);
 
+	if (commandResults == NIL)
+	{
+		ereport(ERROR, (errmsg("could not check if the relation is distributed or not"),
+						errhint("Either there is a connection problem or there "
+								"is not %s relation in the remote node.", relationName)));
+	}
+
 	isDistributedResult = linitial(commandResults);
 	if (strncmp(isDistributedResult->data, "t", 1) == 0)
 	{
@@ -350,7 +357,8 @@ CreateLocalTable(char *relationName, char *nodeName, int32 nodePort)
 	ddlCommandList = TableDDLCommandList(nodeName, nodePort, tableNameStringInfo);
 	if (ddlCommandList == NIL)
 	{
-		ereport(ERROR, (errmsg("relatin %s does not exist on the master", relationName)));
+		ereport(ERROR, (errmsg("relation %s does not exist on the master",
+							   relationName)));
 	}
 
 	/* apply DDL commands against the local database */
