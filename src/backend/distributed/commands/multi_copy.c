@@ -190,6 +190,54 @@ static void CopyAttributeOutText(CopyOutState outputState, char *string);
 static inline void CopyFlushOutput(CopyOutState outputState, char *start, char *pointer);
 
 
+bool
+WorkerCopy(CopyStmt *copyStatement)
+{
+	ListCell *optionCell = NULL;
+
+	/* Extract options from the statement node tree */
+	foreach(optionCell, copyStatement->options)
+	{
+		DefElem *defel = (DefElem *) lfirst(optionCell);
+
+		if (strncmp(defel->defname, "master_hostname", NAMEDATALEN) == 0)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+NodeAddress *
+MasterNodeAddress(CopyStmt *copyStatement)
+{
+	NodeAddress *masterNodeAddress = (NodeAddress *) palloc0(sizeof(NodeAddress));
+	ListCell *optionCell = NULL;
+
+	/* set default port */
+	masterNodeAddress->nodePort = 5432;
+
+	/* Extract options from the statement node tree */
+	foreach(optionCell, copyStatement->options)
+	{
+		DefElem *defel = (DefElem *) lfirst(optionCell);
+
+		if (strncmp(defel->defname, "master_hostname", NAMEDATALEN) == 0)
+		{
+			masterNodeAddress->nodeName = defGetString(defel);
+		}
+		else if (strncmp(defel->defname, "master_port", NAMEDATALEN) == 0)
+		{
+			masterNodeAddress->nodePort = defGetInt32(defel);
+		}
+	}
+
+	return masterNodeAddress;
+}
+
+
 /*
  * RemoveMasterOption removes master node related copy options from the option
  * list of the copy statement.

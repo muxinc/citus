@@ -13,17 +13,9 @@
 #include "tcop/utility.h"
 
 
-typedef struct NodeAddress
-{
-	char *nodeName;
-	int32 nodePort;
-} NodeAddress;
-
 extern void multi_ProcessUtility(Node *parsetree, const char *queryString,
 								 ProcessUtilityContext context, ParamListInfo params,
 								 DestReceiver *dest, char *completionTag);
 
-extern bool WorkerCopy(CopyStmt *copyStatement);
-extern NodeAddress * MasterNodeAddress(CopyStmt *copyStatement);
 
 #endif /* MULTI_UTILITY_H */

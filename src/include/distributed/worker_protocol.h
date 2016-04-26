@@ -115,6 +115,8 @@ extern void RemoveJobSchema(StringInfo schemaName);
 extern Datum * DeconstructArrayObject(ArrayType *arrayObject);
 extern int32 ArrayObjectCount(ArrayType *arrayObject);
 extern FmgrInfo * GetFunctionInfo(Oid typeId, Oid accessMethodId, int16 procedureId);
+extern List * TableDDLCommandList(const char *nodeName, uint32 nodePort,
+								  StringInfo tableName);
 
 /* Function declarations shared with the master planner */
 extern StringInfo TaskFilename(StringInfo directoryName, uint32 taskId);
@@ -144,9 +146,6 @@ extern Datum worker_fetch_regular_table(PG_FUNCTION_ARGS);
 extern Datum worker_append_table_to_shard(PG_FUNCTION_ARGS);
 extern Datum worker_foreign_file_path(PG_FUNCTION_ARGS);
 extern Datum worker_find_block_local_path(PG_FUNCTION_ARGS);
-
-extern List * TableDDLCommandList(const char *nodeName, uint32 nodePort,
-								  StringInfo tableName);
 
 
 #endif   /* WORKER_PROTOCOL_H */

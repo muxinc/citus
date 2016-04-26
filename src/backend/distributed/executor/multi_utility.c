@@ -232,54 +232,6 @@ IsTransmitStmt(Node *parsetree)
 }
 
 
-bool
-WorkerCopy(CopyStmt *copyStatement)
-{
-	ListCell *optionCell = NULL;
-
-	/* Extract options from the statement node tree */
-	foreach(optionCell, copyStatement->options)
-	{
-		DefElem *defel = (DefElem *) lfirst(optionCell);
-
-		if (strncmp(defel->defname, "master_hostname", NAMEDATALEN) == 0)
-		{
-			return true;
-		}
-	}
-
-	return false;
-}
-
-
-NodeAddress *
-MasterNodeAddress(CopyStmt *copyStatement)
-{
-	NodeAddress *masterNodeAddress = (NodeAddress *) palloc0(sizeof(NodeAddress));
-	ListCell *optionCell = NULL;
-
-	/* set default port */
-	masterNodeAddress->nodePort = 5432;
-
-	/* Extract options from the statement node tree */
-	foreach(optionCell, copyStatement->options)
-	{
-		DefElem *defel = (DefElem *) lfirst(optionCell);
-
-		if (strncmp(defel->defname, "master_hostname", NAMEDATALEN) == 0)
-		{
-			masterNodeAddress->nodeName = defGetString(defel);
-		}
-		else if (strncmp(defel->defname, "master_port", NAMEDATALEN) == 0)
-		{
-			masterNodeAddress->nodePort = defGetInt32(defel);
-		}
-	}
-
-	return masterNodeAddress;
-}
-
-
 /*
  * VerifyTransmitStmt checks that the passed in command is a valid transmit
  * statement. Raise ERROR if not.
