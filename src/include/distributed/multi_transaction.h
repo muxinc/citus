@@ -47,6 +47,10 @@ typedef struct TransactionConnection
 } TransactionConnection;
 
 
+/* config variable managed via guc.c */
+extern int MultiTransactionManager;
+
+
 /* Functions declarations for transaction and connection management */
 extern void InitializeDistributedTransaction(void);
 extern void PrepareRemoteTransactions(List *connectionList);

@@ -448,14 +448,14 @@ RegisterCitusConfigVariables(void)
 		NULL, NULL, NULL);
 
 	DefineCustomEnumVariable(
-		"citus.copy_transaction_manager",
-		gettext_noop("Sets the transaction manager for COPY into distributed tables."),
-		gettext_noop("When a failure occurs during when copying into a distributed "
-					 "table, 2PC is required to ensure data is never lost. Change "
+		"citus.multi_transaction_manager",
+		gettext_noop("Sets the transaction manager for distributed transactions."),
+		gettext_noop("When a failure occurs during an operation inside a distributed "
+					 "transactions, 2PC is required to ensure data is never lost. Change "
 					 "this setting to '2pc' from its default '1pc' to enable 2PC."
 					 "You must also set max_prepared_transactions on the worker "
 					 "nodes. Recovery from failed 2PCs is currently manual."),
-		&CopyTransactionManager,
+		&MultiTransactionManager,
 		TRANSACTION_MANAGER_1PC,
 		transaction_manager_options,
 		PGC_USERSET,

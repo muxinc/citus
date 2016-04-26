@@ -28,6 +28,10 @@ static uint32 DistributedTransactionId = 0;
 static StringInfo BuildTransactionName(int connectionId);
 
 
+/* the transaction manager to use for COPY commands */
+int MultiTransactionManager = TRANSACTION_MANAGER_1PC;
+
+
 /*
  * InitializeDistributedTransaction prepares the distributed transaction ID
  * used in transaction names.
