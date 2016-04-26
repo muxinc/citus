@@ -370,9 +370,9 @@ ProcessCopyStmt(CopyStmt *copyStatement, char *completionTag)
 	if (copyStatement->relation != NULL)
 	{
 		bool isDistributedTable = false;
-		bool workerCopy = WorkerCopy(copyStatement);
+		bool isCopyFromWorker = IsCopyFromWorker(copyStatement);
 
-		if (workerCopy)
+		if (isCopyFromWorker)
 		{
 			NodeAddress *masterNodeAddress = MasterNodeAddress(copyStatement);
 			char *relationName = copyStatement->relation->relname;

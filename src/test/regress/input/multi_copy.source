@@ -260,10 +260,10 @@ SELECT count(*) FROM pg_dist_shard WHERE logicalrelid = 'lineitem_copy_append'::
 -- have same table on the master node which is also local node for the regression tests.
 -- This should not be a problem because we create a temporary table which has a
 -- special schema.
-COPY lineitem_copy_append FROM '@abs_srcdir@/data/lineitem.1.data' with (delimiter '|', master_hostname 'localhost', master_port 57636);
+COPY lineitem_copy_append FROM '@abs_srcdir@/data/lineitem.1.data' with (delimiter '|', master_host 'localhost', master_port 57636);
 
 -- Test if there is no relation to copy data
 COPY lineitem_copy_none FROM '@abs_srcdir@/data/lineitem.1.data' with delimiter '|';
 
 -- Test if there is no relation to copy data with the worker copy
-COPY lineitem_copy_none FROM '@abs_srcdir@/data/lineitem.1.data' with (delimiter '|', master_hostname 'localhost', master_port 57636);
+COPY lineitem_copy_none FROM '@abs_srcdir@/data/lineitem.1.data' with (delimiter '|', master_host 'localhost', master_port 57636);

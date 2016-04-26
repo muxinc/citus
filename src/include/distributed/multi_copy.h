@@ -58,7 +58,7 @@ extern void AppendCopyRowData(Datum *valueArray, bool *isNullArray,
 extern void AppendCopyBinaryHeaders(CopyOutState headerOutputState);
 extern void AppendCopyBinaryFooters(CopyOutState footerOutputState);
 extern void CitusCopyFrom(CopyStmt *copyStatement, char *completionTag);
-extern bool WorkerCopy(CopyStmt *copyStatement);
+extern bool IsCopyFromWorker(CopyStmt *copyStatement);
 extern NodeAddress * MasterNodeAddress(CopyStmt *copyStatement);
 
 

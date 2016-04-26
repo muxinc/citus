@@ -191,7 +191,7 @@ static inline void CopyFlushOutput(CopyOutState outputState, char *start, char *
 
 
 bool
-WorkerCopy(CopyStmt *copyStatement)
+IsCopyFromWorker(CopyStmt *copyStatement)
 {
 	ListCell *optionCell = NULL;
 
@@ -200,7 +200,7 @@ WorkerCopy(CopyStmt *copyStatement)
 	{
 		DefElem *defel = (DefElem *) lfirst(optionCell);
 
-		if (strncmp(defel->defname, "master_hostname", NAMEDATALEN) == 0)
+		if (strncmp(defel->defname, "master_host", NAMEDATALEN) == 0)
 		{
 			return true;
 		}
@@ -224,7 +224,7 @@ MasterNodeAddress(CopyStmt *copyStatement)
 	{
 		DefElem *defel = (DefElem *) lfirst(optionCell);
 
-		if (strncmp(defel->defname, "master_hostname", NAMEDATALEN) == 0)
+		if (strncmp(defel->defname, "master_host", NAMEDATALEN) == 0)
 		{
 			masterNodeAddress->nodeName = defGetString(defel);
 		}
@@ -239,11 +239,11 @@ MasterNodeAddress(CopyStmt *copyStatement)
 
 
 /*
- * RemoveMasterOption removes master node related copy options from the option
+ * RemoveMasterOptions removes master node related copy options from the option
  * list of the copy statement.
  */
 static void
-RemoveMasterOption(CopyStmt *copyStatement)
+RemoveMasterOptions(CopyStmt *copyStatement)
 {
 	List *newOptionList = NIL;
 	ListCell *optionCell = NULL;
@@ -253,7 +253,7 @@ RemoveMasterOption(CopyStmt *copyStatement)
 	{
 		DefElem *option = (DefElem *) lfirst(optionCell);
 
-		if ((strncmp(option->defname, "master_hostname", NAMEDATALEN) == 0) ||
+		if ((strncmp(option->defname, "master_host", NAMEDATALEN) == 0) ||
 			(strncmp(option->defname, "master_port", NAMEDATALEN) == 0))
 		{
 			continue;
@@ -380,7 +380,7 @@ void
 CitusCopyFrom(CopyStmt *copyStatement, char *completionTag)
 {
 	Oid tableId = RangeVarGetRelid(copyStatement->relation, NoLock, false);
-	bool workerCopy = false;
+	bool isCopyFromWorker = false;
 
 	/* disallow COPY to/from file or program except for superusers */
 	if (copyStatement->filename != NULL && !superuser())
@@ -403,8 +403,8 @@ CitusCopyFrom(CopyStmt *copyStatement, char *completionTag)
 		}
 	}
 
-	workerCopy = WorkerCopy(copyStatement);
-	if (workerCopy)
+	isCopyFromWorker = IsCopyFromWorker(copyStatement);
+	if (isCopyFromWorker)
 	{
 		NodeAddress *masterNodeAddress = MasterNodeAddress(copyStatement);
 		char *nodeName = masterNodeAddress->nodeName;
@@ -431,7 +431,7 @@ CitusCopyFrom(CopyStmt *copyStatement, char *completionTag)
 			ereport(ERROR, (errmsg("failed to start master node transaction")));
 		}
 
-		RemoveMasterOption(copyStatement);
+		RemoveMasterOptions(copyStatement);
 		CopyToNewShards(copyStatement, completionTag, masterConnection);
 
 		/* commit metadata transactions */
