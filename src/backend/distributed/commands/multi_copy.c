@@ -222,10 +222,12 @@ static char
 RemotePartitionMethod(PGconn *connection, char *relationName)
 {
 	char partitionMethod = '\0';
-	StringInfo partitionMethodCommand = makeStringInfo();
-	appendStringInfo(partitionMethodCommand, PARTITION_TYPE, relationName);
+	PGresult *queryResult = NULL;
 
-	PGresult *queryResult = PQexec(connection, partitionMethodCommand->data);
+	StringInfo partitionMethodCommand = makeStringInfo();
+	appendStringInfo(partitionMethodCommand, PARTITION_TYPE_QUERY, relationName);
+
+	queryResult = PQexec(connection, partitionMethodCommand->data);
 	if (PQresultStatus(queryResult) == PGRES_TUPLES_OK)
 	{
 		char *partitionMethodPointer = PQgetvalue((PGresult *) queryResult, 0, 0);
@@ -245,7 +247,7 @@ UpdateRemoteShardStatistics(PGconn *connection, char *relationName, uint64 shard
 {
 	PGresult *queryResult = NULL;
 	StringInfo updateShardStatisticsCommand = makeStringInfo();
-	appendStringInfo(updateShardStatisticsCommand, UPDATE_SHARD_STATISTICS,
+	appendStringInfo(updateShardStatisticsCommand, UPDATE_SHARD_STATISTICS_QUERY,
 					 relationName, shardId);
 
 	queryResult = PQexec(connection, updateShardStatisticsCommand->data);
@@ -263,7 +265,7 @@ RemoteFinalizedShardPlacementList(PGconn *connection, uint64 shardId)
 	PGresult *queryResult = NULL;
 
 	StringInfo shardPlacementsCommand = makeStringInfo();
-	appendStringInfo(shardPlacementsCommand, SHARD_PLACEMENTS_LOCATIONS, shardId);
+	appendStringInfo(shardPlacementsCommand, FINALIZED_SHARD_PLACEMENTS_QUERY, shardId);
 
 	queryResult = PQexec(connection, shardPlacementsCommand->data);
 	if (PQresultStatus(queryResult) == PGRES_TUPLES_OK)
@@ -303,7 +305,7 @@ CreateRemoteEmptyShard(PGconn *connection, char *relationName)
 	int64 shardId = 0;
 
 	StringInfo createEmptyShardCommand = makeStringInfo();
-	appendStringInfo(createEmptyShardCommand, CREATE_EMPTY_SHARD, relationName);
+	appendStringInfo(createEmptyShardCommand, CREATE_EMPTY_SHARD_QUERY, relationName);
 
 	queryResult = PQexec(connection, createEmptyShardCommand->data);
 	if (PQresultStatus(queryResult) == PGRES_TUPLES_OK)

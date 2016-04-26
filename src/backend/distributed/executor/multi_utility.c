@@ -324,7 +324,7 @@ IsRemoteDistributedTable(char *relationName, char *nodeName, int32 nodePort)
 	List *commandResults = NIL;
 	bool isDistributedTable = false;
 
-	appendStringInfo(isDistributedTableCommand, IS_DISTRIBUTED_TABLE, relationName);
+	appendStringInfo(isDistributedTableCommand, IS_DISTRIBUTED_TABLE_QUERY, relationName);
 	commandResults = ExecuteRemoteQuery(nodeName, nodePort, isDistributedTableCommand);
 
 	if (commandResults == NIL)

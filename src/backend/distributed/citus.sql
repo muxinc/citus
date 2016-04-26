@@ -191,6 +191,27 @@ COMMENT ON FUNCTION master_create_distributed_table(table_name regclass,
                                                     distribution_method citus.distribution_type)
     IS 'define the table distribution functions';
 
+CREATE FUNCTION master_update_shard_statistics(relation_id regclass, shard_id bigint)
+    RETURNS bigint
+    LANGUAGE C STRICT
+    AS 'MODULE_PATHNAME', $$master_update_shard_statistics$$;
+COMMENT ON FUNCTION master_update_shard_statistics(relation_id regclass, shard_id bigint)
+    IS 'update shard statistics and return the updated shard size';
+
+CREATE FUNCTION is_distributed_table(relation_id regclass)
+    RETURNS boolean
+    LANGUAGE C STRICT
+    AS 'MODULE_PATHNAME', $$is_distributed_table$$;
+COMMENT ON FUNCTION is_distributed_table(relation_id regclass)
+    IS 'check if the given relation is distributed';
+
+CREATE FUNCTION partition_type(relation_id regclass)
+    RETURNS "char"
+    LANGUAGE C STRICT
+    AS 'MODULE_PATHNAME', $$partition_type$$;
+COMMENT ON FUNCTION partition_type(relation_id regclass)
+    IS 'fetch the partition method of the distributed relation';
+
 -- define shard creation function for hash-partitioned tables
 CREATE FUNCTION master_create_worker_shards(table_name text, shard_count integer,
                                             replication_factor integer DEFAULT 2)
@@ -493,23 +514,5 @@ CREATE FUNCTION master_copy_shard_placement(shard_id bigint,
 RETURNS void
 AS 'MODULE_PATHNAME'
 LANGUAGE C STRICT;
-
--- update shard statistics
-CREATE FUNCTION master_update_shard_statistics(relation_id regclass, shard_id bigint)
-RETURNS void
-AS 'MODULE_PATHNAME'
-LANGUAGE C STRICT;
-
--- check if the given relation is distributed
-CREATE FUNCTION is_distributed_table(relation_id regclass)
-    RETURNS boolean
-    AS 'MODULE_PATHNAME'
-    LANGUAGE C STRICT;
-
--- get the partition column of the distributed table
-CREATE FUNCTION partition_type(relation_id regclass)
-    RETURNS "char"
-    AS 'MODULE_PATHNAME'
-    LANGUAGE C STRICT;
 
 RESET search_path;

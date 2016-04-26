@@ -54,6 +54,7 @@ static StringInfo WorkerPartitionValue(char *nodeName, uint32 nodePort, Oid rela
 /* exports for SQL callable functions */
 PG_FUNCTION_INFO_V1(master_create_empty_shard);
 PG_FUNCTION_INFO_V1(master_append_table_to_shard);
+PG_FUNCTION_INFO_V1(master_update_shard_statistics);
 
 
 /*
@@ -272,6 +273,21 @@ master_append_table_to_shard(PG_FUNCTION_ARGS)
 
 
 /*
+ * master_update_shard_statistics updates metadata (shard size and shard min/max
+ * values) of the given shard and returns the updated shard size.
+ */
+Datum
+master_update_shard_statistics(PG_FUNCTION_ARGS)
+{
+	Oid relationId = PG_GETARG_OID(0);
+	int64 shardId = PG_GETARG_INT64(1);
+	uint64 shardSize = UpdateShardStatistics(relationId, shardId);
+
+	PG_RETURN_INT64(shardSize);
+}
+
+
+/*
  * CheckDistributedTable checks if the given relationId corresponds to a
  * distributed table. If it does not, the function errors out.
  */
@@ -391,8 +407,8 @@ WorkerCreateShard(char *nodeName, uint32 nodePort,
 
 
 /*
- * UpdateShardStatistics updates metadata for the given shard id and returns
- * the new shard size.
+ * UpdateShardStatistics updates metadata (shard size and shard min/max values)
+ * of the given shard and returns the updated shard size.
  */
 uint64
 UpdateShardStatistics(Oid relationId, int64 shardId)
