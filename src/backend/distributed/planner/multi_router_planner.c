@@ -267,7 +267,7 @@ ErrorIfModifyQueryNotSupported(Query *queryTree)
 				continue;
 			}
 
-			if (!IsA(targetEntry->expr, Const))
+			if (contain_mutable_functions((Node *) targetEntry->expr))
 			{
 				hasNonConstTargetEntryExprs = true;
 			}
