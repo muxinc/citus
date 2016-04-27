@@ -402,7 +402,7 @@ static char *generate_function_name(Oid funcid, int nargs,
 					   ParseExprKind special_exprkind);
 static char *generate_operator_name(Oid operid, Oid arg1, Oid arg2);
 
-#define only_marker(rte)  ((rte)->inh ? "" : "ONLY ")
+#define only_marker(rte)  ("")
 
 
 
